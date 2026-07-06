@@ -7,7 +7,7 @@ import json
 
 from dataset import get_character_count
 from analyzer import analyze_user_face, normalize_base64
-from matcher import match_top20
+from matcher_v2 import match_top20
 
 app = FastAPI()
 
