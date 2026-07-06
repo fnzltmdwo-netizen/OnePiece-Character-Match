@@ -1,18 +1,24 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 from openai import OpenAI
+
 import os
 import json
 import uuid
 import sqlite3
 import html
+import requests
+from io import BytesIO
 from datetime import datetime
+
+from PIL import Image, ImageDraw, ImageFont
 
 from dataset import get_character_count
 from analyzer import analyze_user_face, normalize_base64
 from matcher_v2 import match_top20
+
 
 app = FastAPI()
 
@@ -40,7 +46,6 @@ class MatchRequest(BaseModel):
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-
     cur.execute("""
         CREATE TABLE IF NOT EXISTS results (
             share_id TEXT PRIMARY KEY,
@@ -50,7 +55,6 @@ def init_db():
             user_dna_json TEXT
         )
     """)
-
     conn.commit()
     conn.close()
 
@@ -86,7 +90,6 @@ def save_result(results, user_dna, user_name=""):
 
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-
     cur.execute(
         """
         INSERT INTO results (
@@ -106,7 +109,6 @@ def save_result(results, user_dna, user_name=""):
             json.dumps(user_dna, ensure_ascii=False)
         )
     )
-
     conn.commit()
     conn.close()
 
@@ -116,7 +118,6 @@ def save_result(results, user_dna, user_name=""):
 def load_result(share_id):
     conn = sqlite3.connect(DB_PATH)
     cur = conn.cursor()
-
     cur.execute(
         """
         SELECT share_id, user_name, created_at, results_json, user_dna_json
@@ -125,7 +126,6 @@ def load_result(share_id):
         """,
         (share_id,)
     )
-
     row = cur.fetchone()
     conn.close()
 
@@ -146,7 +146,6 @@ def gpt_final_judge(image_base64, user_dna, top20):
 
     for item in top20:
         c = item["character"]
-
         candidates.append({
             "name": c.get("name", ""),
             "raw_score": item.get("score", 0),
@@ -224,8 +223,7 @@ Return format:
         ],
     )
 
-    text = response.choices[0].message.content
-    return safe_json_parse(text)
+    return safe_json_parse(response.choices[0].message.content)
 
 
 @app.post("/match")
@@ -311,18 +309,102 @@ def get_result(share_id: str):
     result = load_result(share_id)
 
     if not result:
-        return {
-            "error": "result not found"
-        }
+        return {"error": "result not found"}
 
     return result
+
+
+def get_font(size, bold=True):
+    candidates = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ]
+
+    for path in candidates:
+        if os.path.exists(path):
+            return ImageFont.truetype(path, size)
+
+    return ImageFont.load_default()
+
+
+@app.get("/share-image/{share_id}")
+def share_image(share_id: str):
+    result = load_result(share_id)
+
+    if not result:
+        return Response(status_code=404)
+
+    results = result.get("results", [])
+    user_name = result.get("user_name") or "FRIEND"
+
+    W, H = 1200, 630
+    img = Image.new("RGB", (W, H), "#f7e4b6")
+    draw = ImageDraw.Draw(img)
+
+    font_title = get_font(58)
+    font_sub = get_font(36)
+    font_name = get_font(30)
+    font_score = get_font(28)
+
+    draw.rectangle([0, 0, W, H], fill="#f7e4b6")
+    draw.rectangle([0, 0, W, 110], fill="#10233f")
+    draw.text((55, 28), "ONE PIECE MATCH RESULT", fill="#ffffff", font=font_title)
+    draw.text((60, 128), f"{user_name}'s TOP 3", fill="#c62828", font=font_sub)
+
+    x_positions = [60, 435, 810]
+    medals = ["1", "2", "3"]
+    medal_colors = ["#f4b942", "#cfd8dc", "#cd7f32"]
+
+    for i, item in enumerate(results[:3]):
+        x = x_positions[i]
+        y = 190
+
+        draw.rounded_rectangle(
+            [x, y, x + 330, y + 375],
+            radius=28,
+            fill="#fffdf4",
+            outline="#10233f",
+            width=5
+        )
+
+        draw.ellipse(
+            [x + 18, y + 18, x + 80, y + 80],
+            fill=medal_colors[i],
+            outline="#10233f",
+            width=3
+        )
+        draw.text((x + 39, y + 29), medals[i], fill="#10233f", font=font_sub)
+
+        try:
+            r = requests.get(item.get("image_url", ""), timeout=8)
+            r.raise_for_status()
+            char_img = Image.open(BytesIO(r.content)).convert("RGB")
+            char_img.thumbnail((235, 235))
+            px = x + (330 - char_img.width) // 2
+            py = y + 95
+            img.paste(char_img, (px, py))
+        except Exception:
+            draw.rectangle([x + 55, y + 105, x + 275, y + 315], fill="#e2e8f0")
+            draw.text((x + 95, y + 195), "NO IMAGE", fill="#10233f", font=font_score)
+
+        name = str(item.get("name", "Unknown"))[:18]
+        score = item.get("score", 0)
+
+        draw.text((x + 28, y + 320), name, fill="#10233f", font=font_name)
+        draw.text((x + 28, y + 355), f"{score}% MATCH", fill="#e63946", font=font_score)
+
+    buffer = BytesIO()
+    img.save(buffer, format="PNG")
+    buffer.seek(0)
+
+    return Response(content=buffer.getvalue(), media_type="image/png")
 
 
 @app.get("/share/{share_id}", response_class=HTMLResponse)
 def share_page(share_id: str):
     result = load_result(share_id)
 
-    image_url = f"{FRONTEND_URL}/og-image.png"
+    image_url = f"{BACKEND_URL}/share-image/{share_id}"
 
     if not result:
         title = "원피스 닮은 캐릭터 테스트"
