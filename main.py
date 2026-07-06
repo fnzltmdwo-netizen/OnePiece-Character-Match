@@ -137,3 +137,17 @@ def download_csv():
         media_type="text/csv",
         filename=CSV_PATH
     )
+
+@app.get("/download-images")
+def download_images():
+
+    if not os.path.exists("onepiece_with_images.csv"):
+        return {
+            "error": "onepiece_with_images.csv not found."
+        }
+
+    return FileResponse(
+        "onepiece_with_images.csv",
+        media_type="text/csv",
+        filename="onepiece_with_images.csv"
+    )
