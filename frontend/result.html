@@ -19,7 +19,7 @@
     <section class="hero">
       <div class="flag">🏴‍☠️</div>
       <h1>원피스 닮은 캐릭터 결과</h1>
-      <p>공유된 TOP3 결과입니다.</p>
+      <p id="resultSubText">공유된 TOP3 결과입니다.</p>
     </section>
 
     <section id="loading" class="loading">
@@ -94,7 +94,11 @@
           loading.innerHTML = "<p>결과 데이터가 비어 있습니다 😭</p>";
           return;
         }
-
+        const resultSubText = document.getElementById("resultSubText");
+        if (decoded.user_name) {
+          resultSubText.textContent = `${decoded.user_name} 님의 공유 결과입니다.`;
+        }  
+        
         renderResults(decoded.results);
 
       } catch (err) {
