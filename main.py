@@ -5,8 +5,8 @@ from openai import OpenAI
 import os
 import json
 import uuid
-
 from datetime import datetime
+
 from dataset import get_character_count
 from analyzer import analyze_user_face, normalize_base64
 from matcher_v2 import match_top20
@@ -25,6 +25,7 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 MODEL = "gpt-4o-mini"
 RESULT_STORE = "result_store.json"
+FRONTEND_URL = "https://onepiece-character-frontend.onrender.com"
 
 
 class MatchRequest(BaseModel):
@@ -52,6 +53,34 @@ def safe_json_parse(text):
         raise
 
 
+def load_result_store():
+    if not os.path.exists(RESULT_STORE):
+        return {}
+
+    try:
+        with open(RESULT_STORE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_result(results, user_dna):
+    store = load_result_store()
+    share_id = str(uuid.uuid4())[:8]
+
+    store[share_id] = {
+        "share_id": share_id,
+        "created_at": datetime.now().isoformat(),
+        "results": results,
+        "user_dna": user_dna
+    }
+
+    with open(RESULT_STORE, "w", encoding="utf-8") as f:
+        json.dump(store, f, ensure_ascii=False, indent=2)
+
+    return share_id
+
+
 def gpt_final_judge(image_base64, user_dna, top20):
     candidates = []
 
@@ -64,6 +93,7 @@ def gpt_final_judge(image_base64, user_dna, top20):
             "image_url": c.get("image_url", ""),
             "hair_color": c.get("hair_color", ""),
             "hair_style": c.get("hair_style", ""),
+            "hair_length": c.get("hair_length", ""),
             "eye_style": c.get("eye_style", ""),
             "eye_size": c.get("eye_size", ""),
             "face_shape": c.get("face_shape", ""),
@@ -72,6 +102,9 @@ def gpt_final_judge(image_base64, user_dna, top20):
             "age_vibe": c.get("age_vibe", ""),
             "cute_level": c.get("cute_level", ""),
             "cool_level": c.get("cool_level", ""),
+            "dark_level": c.get("dark_level", ""),
+            "funny_level": c.get("funny_level", ""),
+            "power_level": c.get("power_level", ""),
             "energy_level": c.get("energy_level", ""),
             "confidence_level": c.get("confidence_level", ""),
             "match_tags": c.get("match_tags", "")
@@ -89,10 +122,11 @@ Choose the FINAL TOP 3 characters that visually match the person best.
 
 Important:
 - Do not identify the person.
-- Focus on visible resemblance: face shape, eyes, expression, hairstyle, vibe.
-- Avoid always choosing the highest raw_score if another candidate visually fits better.
+- Focus on visible resemblance: face shape, eyes, expression, hairstyle, and overall vibe.
+- Use raw_score as a reference, but do not blindly follow it.
+- Prefer the most natural visual resemblance.
 - Return ONLY valid JSON array.
-- Korean reason must be natural.
+- Korean reason must be natural and specific.
 
 User DNA:
 {json.dumps(user_dna, ensure_ascii=False)}
@@ -105,7 +139,7 @@ Return format:
   {{
     "name": "Character Name",
     "score": 96,
-    "reason": "한국어 한 문장"
+    "reason": "눈매와 전체적인 분위기가 비슷합니다."
   }}
 ]
 """
@@ -133,41 +167,16 @@ Return format:
     text = response.choices[0].message.content
     return safe_json_parse(text)
 
-def load_result_store():
-    if not os.path.exists(RESULT_STORE):
-        return {}
-    try:
-        with open(RESULT_STORE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-
-def save_result(results, user_dna):
-    store = load_result_store()
-    share_id = str(uuid.uuid4())[:8]
-
-    store[share_id] = {
-        "share_id": share_id,
-        "created_at": datetime.now().isoformat(),
-        "results": results,
-        "user_dna": user_dna
-    }
-
-    with open(RESULT_STORE, "w", encoding="utf-8") as f:
-        json.dump(store, f, ensure_ascii=False, indent=2)
-
-    return share_id
 
 @app.post("/match")
 def match_character(req: MatchRequest):
     user_dna = analyze_user_face(req.image_base64)
-
     top20 = match_top20(user_dna)
 
     try:
         judged = gpt_final_judge(req.image_base64, user_dna, top20)
-    except Exception:
+    except Exception as e:
+        print("GPT final judge failed:", e)
         judged = []
 
     results = []
@@ -208,12 +217,12 @@ def match_character(req: MatchRequest):
             percent = min(percent, 98)
 
             results.append({
-                "rank": index + 1,
+                "rank": len(results) + 1,
                 "name": character.get("name", ""),
                 "score": percent,
                 "image_url": character.get("image_url", ""),
                 "source_url": character.get("source_url", ""),
-                "reason": character.get("match_note", "전체적인 분위기가 비슷합니다."),
+                "reason": character.get("match_note", "전체적인 분위기와 인상이 비슷합니다."),
                 "tags": character.get("match_tags", ""),
                 "raw_score": item["score"]
             })
@@ -221,16 +230,17 @@ def match_character(req: MatchRequest):
             if len(results) >= 3:
                 break
 
-final_results = results[:3]
-share_id = save_result(final_results, user_dna)
+    final_results = results[:3]
+    share_id = save_result(final_results, user_dna)
 
-return {
-    "message": "match complete",
-    "share_id": share_id,
-    "share_url": f"https://onepiece-character-frontend.onrender.com/result.html?id={share_id}",
-    "user_dna": user_dna,
-    "results": final_results
-}
+    return {
+        "message": "match complete",
+        "share_id": share_id,
+        "share_url": f"{FRONTEND_URL}/result.html?id={share_id}",
+        "user_dna": user_dna,
+        "results": final_results
+    }
+
 
 @app.get("/result/{share_id}")
 def get_result(share_id: str):
