@@ -5,6 +5,7 @@ from openai import OpenAI
 import os
 import json
 import uuid
+import sqlite3
 from datetime import datetime
 
 from dataset import get_character_count
@@ -24,12 +25,34 @@ app.add_middleware(
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 MODEL = "gpt-4o-mini"
-RESULT_STORE = "result_store.json"
+DB_PATH = "results.db"
 FRONTEND_URL = "https://onepiece-character-frontend.onrender.com"
 
 
 class MatchRequest(BaseModel):
     image_base64: str
+    user_name: str = ""
+
+
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS results (
+            share_id TEXT PRIMARY KEY,
+            user_name TEXT,
+            created_at TEXT,
+            results_json TEXT,
+            user_dna_json TEXT
+        )
+    """)
+
+    conn.commit()
+    conn.close()
+
+
+init_db()
 
 
 @app.get("/")
@@ -38,7 +61,8 @@ def home():
         "message": "One Piece Character Match API is running!",
         "status": "ok",
         "csv_exists": os.path.exists("onepiece_ai_final.csv"),
-        "character_count": get_character_count()
+        "character_count": get_character_count(),
+        "db_exists": os.path.exists(DB_PATH)
     }
 
 
@@ -53,32 +77,65 @@ def safe_json_parse(text):
         raise
 
 
-def load_result_store():
-    if not os.path.exists(RESULT_STORE):
-        return {}
-
-    try:
-        with open(RESULT_STORE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-
-def save_result(results, user_dna):
-    store = load_result_store()
+def save_result(results, user_dna, user_name=""):
     share_id = str(uuid.uuid4())[:8]
+    created_at = datetime.now().isoformat()
 
-    store[share_id] = {
-        "share_id": share_id,
-        "created_at": datetime.now().isoformat(),
-        "results": results,
-        "user_dna": user_dna
-    }
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
 
-    with open(RESULT_STORE, "w", encoding="utf-8") as f:
-        json.dump(store, f, ensure_ascii=False, indent=2)
+    cur.execute(
+        """
+        INSERT INTO results (
+            share_id,
+            user_name,
+            created_at,
+            results_json,
+            user_dna_json
+        )
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (
+            share_id,
+            user_name,
+            created_at,
+            json.dumps(results, ensure_ascii=False),
+            json.dumps(user_dna, ensure_ascii=False)
+        )
+    )
+
+    conn.commit()
+    conn.close()
 
     return share_id
+
+
+def load_result(share_id):
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.cursor()
+
+    cur.execute(
+        """
+        SELECT share_id, user_name, created_at, results_json, user_dna_json
+        FROM results
+        WHERE share_id = ?
+        """,
+        (share_id,)
+    )
+
+    row = cur.fetchone()
+    conn.close()
+
+    if not row:
+        return None
+
+    return {
+        "share_id": row[0],
+        "user_name": row[1],
+        "created_at": row[2],
+        "results": json.loads(row[3]),
+        "user_dna": json.loads(row[4])
+    }
 
 
 def gpt_final_judge(image_base64, user_dna, top20):
@@ -170,6 +227,8 @@ Return format:
 
 @app.post("/match")
 def match_character(req: MatchRequest):
+    user_name = (req.user_name or "").strip()[:12]
+
     user_dna = analyze_user_face(req.image_base64)
     top20 = match_top20(user_dna)
 
@@ -211,7 +270,7 @@ def match_character(req: MatchRequest):
         top3 = top20[:3]
         max_score = top3[0]["score"] if top3 else 1
 
-        for index, item in enumerate(top3):
+        for item in top3:
             character = item["character"]
             percent = int(82 + (item["score"] / max_score) * 16)
             percent = min(percent, 98)
@@ -231,12 +290,13 @@ def match_character(req: MatchRequest):
                 break
 
     final_results = results[:3]
-    share_id = save_result(final_results, user_dna)
+    share_id = save_result(final_results, user_dna, user_name)
 
     return {
         "message": "match complete",
         "share_id": share_id,
         "share_url": f"{FRONTEND_URL}/result.html?id={share_id}",
+        "user_name": user_name,
         "user_dna": user_dna,
         "results": final_results
     }
@@ -244,11 +304,11 @@ def match_character(req: MatchRequest):
 
 @app.get("/result/{share_id}")
 def get_result(share_id: str):
-    store = load_result_store()
+    result = load_result(share_id)
 
-    if share_id not in store:
+    if not result:
         return {
             "error": "result not found"
         }
 
-    return store[share_id]
+    return result
