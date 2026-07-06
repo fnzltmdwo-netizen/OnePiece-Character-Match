@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>원피스 닮은 캐릭터 테스트</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="container">
+    <section class="hero">
+      <div class="flag">🏴‍☠️</div>
+      <h1>원피스 닮은 캐릭터 테스트</h1>
+      <p>사진 한 장으로 원피스 캐릭터 548명과 비교해요.</p>
+    </section>
+
+    <section class="upload-card">
+      <label class="drop-zone" id="dropZone">
+        <input type="file" id="imageInput" accept="image/*" hidden />
+        <div id="uploadText">
+          <div class="camera">📷</div>
+          <strong>사진 선택 또는 드래그</strong>
+          <span>정면 얼굴 사진이면 더 정확해요</span>
+        </div>
+        <img id="preview" class="preview hidden" />
+      </label>
+
+      <button id="analyzeBtn" disabled>분석하기</button>
+    </section>
+
+    <section id="loading" class="loading hidden">
+      <div class="anchor">⚓</div>
+      <p>밀짚모자 해적단을 찾는 중...</p>
+      <div class="bar">
+        <div></div>
+      </div>
+    </section>
+
+    <section id="resultSection" class="results hidden">
+      <h2>TOP 3 결과</h2>
+      <div id="resultCards"></div>
+
+      <button id="copyBtn" class="share-btn">결과 링크 복사</button>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
