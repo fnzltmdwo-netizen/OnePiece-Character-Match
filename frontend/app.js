@@ -1,10 +1,10 @@
 const API_URL = "https://onepiece-character-match.onrender.com";
 
-const nameInput = document.getElementById("nameInput");
 const imageInput = document.getElementById("imageInput");
 const dropZone = document.getElementById("dropZone");
 const preview = document.getElementById("preview");
 const uploadText = document.getElementById("uploadText");
+const nameInput = document.getElementById("nameInput");
 const analyzeBtn = document.getElementById("analyzeBtn");
 const loading = document.getElementById("loading");
 const resultSection = document.getElementById("resultSection");
@@ -57,19 +57,6 @@ function fileToBase64(file) {
   });
 }
 
-function makeShareUrl(results) {
-  const userName = (nameInput?.value || "").trim();
-
-  const payload = {
-    user_name: userName,
-    results
-  };   
-
-  const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
-  return `${window.location.origin}/result.html?data=${encoded}`;
-
- } 
-
 function renderResults(results) {
   resultCards.innerHTML = "";
 
@@ -108,7 +95,7 @@ analyzeBtn.addEventListener("click", async () => {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        image_base64: imageBase64
+        image_base64: imageBase64,
         user_name: nameInput.value.trim()
       })
     });
@@ -119,8 +106,13 @@ analyzeBtn.addEventListener("click", async () => {
 
     const data = await response.json();
 
+    if (!data.results || data.results.length === 0) {
+      throw new Error("결과 없음");
+    }
+
     renderResults(data.results);
 
+    // SQLite 저장 후 백엔드가 내려주는 짧은 공유 링크
     window.lastShareUrl = data.share_url;
 
   } catch (error) {
@@ -133,6 +125,11 @@ analyzeBtn.addEventListener("click", async () => {
 });
 
 copyBtn.addEventListener("click", async () => {
-  await navigator.clipboard.writeText(window.lastShareUrl || window.location.href);
+  if (!window.lastShareUrl) {
+    alert("먼저 분석을 완료해줘!");
+    return;
+  }
+
+  await navigator.clipboard.writeText(window.lastShareUrl);
   alert("결과 링크가 복사됐어!");
 });
