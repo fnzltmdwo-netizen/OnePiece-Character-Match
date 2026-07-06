@@ -102,7 +102,11 @@ analyzeBtn.addEventListener("click", async () => {
 
     const data = await response.json();
     renderResults(data.results);
+    window.lastShareUrl = data.share_url;
 
+    if (copyBtn && data.share_url) {
+      copyBtn.textContent = "결과 링크 복사";
+}
   } catch (error) {
     alert("분석 실패 😭 백엔드 연결 후 다시 테스트해줘.");
     console.error(error);
@@ -113,6 +117,6 @@ analyzeBtn.addEventListener("click", async () => {
 });
 
 copyBtn.addEventListener("click", async () => {
-  await navigator.clipboard.writeText(window.location.href);
+  await navigator.clipboard.writeText(window.lastShareUrl || window.location.href);
   alert("링크가 복사됐어!");
 });
