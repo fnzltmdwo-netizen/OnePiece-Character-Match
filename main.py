@@ -1,11 +1,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from openai import OpenAI
 import os
 import json
 import uuid
 import sqlite3
+import html
 from datetime import datetime
 
 from dataset import get_character_count
@@ -27,6 +29,7 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 MODEL = "gpt-4o-mini"
 DB_PATH = "results.db"
 FRONTEND_URL = "https://onepiece-character-frontend.onrender.com"
+BACKEND_URL = "https://onepiece-character-match.onrender.com"
 
 
 class MatchRequest(BaseModel):
@@ -295,7 +298,8 @@ def match_character(req: MatchRequest):
     return {
         "message": "match complete",
         "share_id": share_id,
-        "share_url": f"{FRONTEND_URL}/result.html?id={share_id}",
+        "share_url": f"{BACKEND_URL}/share/{share_id}",
+        "result_url": f"{FRONTEND_URL}/result.html?id={share_id}",
         "user_name": user_name,
         "user_dna": user_dna,
         "results": final_results
@@ -312,3 +316,58 @@ def get_result(share_id: str):
         }
 
     return result
+
+
+@app.get("/share/{share_id}", response_class=HTMLResponse)
+def share_page(share_id: str):
+    result = load_result(share_id)
+
+    image_url = f"{FRONTEND_URL}/og-image.png"
+
+    if not result:
+        title = "원피스 닮은 캐릭터 테스트"
+        desc = "사진 한 장으로 나와 닮은 원피스 캐릭터 TOP3를 찾아보세요!"
+        target_url = FRONTEND_URL
+    else:
+        user_name = result.get("user_name") or "친구"
+        results = result.get("results", [])
+        top1 = results[0] if results else {}
+
+        char_name = top1.get("name", "원피스 캐릭터")
+        score = top1.get("score", "")
+
+        title = f"{user_name}님의 원피스 닮은 캐릭터 결과"
+        desc = f"1위 {char_name} · {score}% 닮음! TOP3 결과를 확인해보세요."
+        target_url = f"{FRONTEND_URL}/result.html?id={share_id}"
+
+    safe_title = html.escape(title)
+    safe_desc = html.escape(desc)
+    safe_target_url = html.escape(target_url)
+    safe_image_url = html.escape(image_url)
+    safe_share_url = html.escape(f"{BACKEND_URL}/share/{share_id}")
+
+    return f"""
+    <!DOCTYPE html>
+    <html lang="ko">
+    <head>
+      <meta charset="UTF-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+      <meta property="og:title" content="{safe_title}" />
+      <meta property="og:description" content="{safe_desc}" />
+      <meta property="og:image" content="{safe_image_url}" />
+      <meta property="og:url" content="{safe_share_url}" />
+      <meta property="og:type" content="website" />
+
+      <title>{safe_title}</title>
+
+      <script>
+        window.location.href = "{safe_target_url}";
+      </script>
+    </head>
+    <body>
+      <p>결과 페이지로 이동 중...</p>
+      <a href="{safe_target_url}">결과 보러가기</a>
+    </body>
+    </html>
+    """
