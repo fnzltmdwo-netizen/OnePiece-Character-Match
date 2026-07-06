@@ -1,5 +1,6 @@
 const API_URL = "https://onepiece-character-match.onrender.com";
 
+const nameInput = document.getElementById("nameInput");
 const imageInput = document.getElementById("imageInput");
 const dropZone = document.getElementById("dropZone");
 const preview = document.getElementById("preview");
@@ -57,10 +58,17 @@ function fileToBase64(file) {
 }
 
 function makeShareUrl(results) {
-  const payload = { results };
+  const userName = (nameInput?.value || "").trim();
+
+  const payload = {
+    user_name: userName,
+    results
+  };   
+
   const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
   return `${window.location.origin}/result.html?data=${encoded}`;
-}
+
+ } 
 
 function renderResults(results) {
   resultCards.innerHTML = "";
