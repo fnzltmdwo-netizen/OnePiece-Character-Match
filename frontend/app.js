@@ -109,6 +109,7 @@ analyzeBtn.addEventListener("click", async () => {
       },
       body: JSON.stringify({
         image_base64: imageBase64
+        user_name: nameInput.value.trim()
       })
     });
 
@@ -120,7 +121,7 @@ analyzeBtn.addEventListener("click", async () => {
 
     renderResults(data.results);
 
-    window.lastShareUrl = makeShareUrl(data.results);
+    window.lastShareUrl = data.share_url;
 
   } catch (error) {
     alert("분석 실패 😭 백엔드 연결 후 다시 테스트해줘.");
