@@ -4,7 +4,7 @@ from fastapi.responses import FileResponse
 import pandas as pd
 import requests
 import os
-import re
+import time
 
 app = FastAPI()
 
@@ -17,14 +17,20 @@ app.add_middleware(
 )
 
 CSV_PATH = "onepiece_characters_raw.csv"
+API_URL = "https://onepiece.fandom.com/api.php"
 
 HEADERS = {
     "User-Agent": "OnePieceCharacterMatch/1.0"
 }
 
-CHARACTER_LIST_URLS = [
-    "https://onepiece.fandom.com/wiki/List_of_Canon_Characters",
-    "https://onepiece.fandom.com/wiki/List_of_Non-Canon_Characters",
+SEED_KEYWORDS = [
+    "Monkey", "Roronoa", "Nami", "Usopp", "Sanji", "Tony Tony", "Nico",
+    "Franky", "Brook", "Jinbe", "Portgas", "Gol", "Trafalgar", "Eustass",
+    "Shanks", "Buggy", "Crocodile", "Doflamingo", "Kaido", "Big Mom",
+    "Charlotte", "Vinsmoke", "Donquixote", "Bartholomew", "Boa",
+    "Marine", "Pirates", "Kingdom", "Island", "Crew", "Family",
+    "Admiral", "Vice Admiral", "Captain", "Officer", "Agent",
+    "Luffy", "Zoro", "Robin", "Chopper", "Law", "Ace", "Sabo"
 ]
 
 
@@ -37,71 +43,61 @@ def home():
     }
 
 
-def clean_name(name):
-    name = str(name).strip()
-    name = re.sub(r"\[[^\]]*\]", "", name)
-    name = name.replace("\n", " ")
-    name = re.sub(r"\s+", " ", name)
-    return name.strip()
+def search_pages(keyword):
+    params = {
+        "action": "query",
+        "list": "search",
+        "srsearch": keyword,
+        "srlimit": 50,
+        "format": "json",
+    }
 
+    res = requests.get(API_URL, params=params, headers=HEADERS, timeout=20)
+    res.raise_for_status()
+    data = res.json()
 
-def collect_from_tables():
     rows = []
 
-    for url in CHARACTER_LIST_URLS:
-        tables = pd.read_html(url)
+    for item in data.get("query", {}).get("search", []):
+        title = item.get("title", "")
 
-        for table in tables:
-            columns = [str(c).lower() for c in table.columns]
+        if not title:
+            continue
+        if title.startswith(("File:", "Category:", "Template:", "List of")):
+            continue
+        if "/" in title:
+            continue
 
-            possible_name_cols = []
-            for col in table.columns:
-                col_text = str(col).lower()
-                if "name" in col_text or "character" in col_text:
-                    possible_name_cols.append(col)
+        rows.append({
+            "name": title,
+            "pageid": item.get("pageid"),
+            "source_url": f"https://onepiece.fandom.com/wiki/{title.replace(' ', '_')}",
+            "image_url": ""
+        })
 
-            if not possible_name_cols:
-                continue
-
-            name_col = possible_name_cols[0]
-
-            for _, row in table.iterrows():
-                name = clean_name(row.get(name_col, ""))
-
-                if not name:
-                    continue
-                if name.lower() in ["nan", "name", "character"]:
-                    continue
-                if len(name) > 80:
-                    continue
-
-                source_url = f"https://onepiece.fandom.com/wiki/{name.replace(' ', '_')}"
-
-                rows.append({
-                    "name": name,
-                    "source_url": source_url,
-                    "image_url": "",
-                })
-
-    df = pd.DataFrame(rows)
-
-    if df.empty:
-        return df
-
-    df = df.drop_duplicates(subset=["name"]).reset_index(drop=True)
-
-    return df
+    return rows
 
 
 @app.get("/collect")
 def collect_characters():
-    df = collect_from_tables()
+    all_rows = []
+
+    for keyword in SEED_KEYWORDS:
+        try:
+            all_rows.extend(search_pages(keyword))
+            time.sleep(0.15)
+        except Exception:
+            pass
+
+    df = pd.DataFrame(all_rows)
 
     if df.empty:
         return {
             "message": "collection failed",
             "character_count": 0
         }
+
+    df = df.drop_duplicates(subset=["name"]).reset_index(drop=True)
 
     df["gender"] = ""
     df["hair_color"] = ""
@@ -127,7 +123,7 @@ def collect_characters():
         "message": "collection complete",
         "character_count": len(df),
         "csv_path": CSV_PATH,
-        "sample": df.head(20).to_dict(orient="records")
+        "sample": df.head(30).to_dict(orient="records")
     }
 
 
