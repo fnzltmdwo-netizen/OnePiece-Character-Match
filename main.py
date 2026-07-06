@@ -291,6 +291,13 @@ def match_character(req: MatchRequest):
                 break
 
     final_results = results[:3]
+
+    fixed_scores = [96, 92, 89]
+    
+    for i, item in enumerate(final_results):
+        item["rank"] = i + 1
+        item["score"] = fixed_scores[i]
+        
     share_id = save_result(final_results, user_dna, user_name)
 
     return {
