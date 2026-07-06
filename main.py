@@ -1,10 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-import requests
 import pandas as pd
-import time
+import requests
 import os
+import re
 
 app = FastAPI()
 
@@ -16,121 +16,92 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-API_URL = "https://onepiece.fandom.com/api.php"
 CSV_PATH = "onepiece_characters_raw.csv"
 
 HEADERS = {
     "User-Agent": "OnePieceCharacterMatch/1.0"
 }
 
+CHARACTER_LIST_URLS = [
+    "https://onepiece.fandom.com/wiki/List_of_Canon_Characters",
+    "https://onepiece.fandom.com/wiki/List_of_Non-Canon_Characters",
+]
+
 
 @app.get("/")
 def home():
-    exists = os.path.exists(CSV_PATH)
-
     return {
         "message": "One Piece Character Match API is running!",
         "status": "ok",
-        "csv_exists": exists
+        "csv_exists": os.path.exists(CSV_PATH)
     }
 
 
-def get_category_members(category_name, limit=5000):
+def clean_name(name):
+    name = str(name).strip()
+    name = re.sub(r"\[[^\]]*\]", "", name)
+    name = name.replace("\n", " ")
+    name = re.sub(r"\s+", " ", name)
+    return name.strip()
+
+
+def collect_from_tables():
     rows = []
-    cmcontinue = None
 
-    while True:
-        params = {
-            "action": "query",
-            "list": "categorymembers",
-            "cmtitle": category_name,
-            "cmlimit": "500",
-            "format": "json",
-        }
+    for url in CHARACTER_LIST_URLS:
+        tables = pd.read_html(url)
 
-        if cmcontinue:
-            params["cmcontinue"] = cmcontinue
+        for table in tables:
+            columns = [str(c).lower() for c in table.columns]
 
-        res = requests.get(API_URL, params=params, headers=HEADERS, timeout=20)
-        res.raise_for_status()
-        data = res.json()
+            possible_name_cols = []
+            for col in table.columns:
+                col_text = str(col).lower()
+                if "name" in col_text or "character" in col_text:
+                    possible_name_cols.append(col)
 
-        members = data.get("query", {}).get("categorymembers", [])
-
-        for m in members:
-            title = m.get("title", "")
-            pageid = m.get("pageid")
-
-            if title.startswith(("Category:", "File:", "Template:")):
+            if not possible_name_cols:
                 continue
 
-            rows.append({
-                "name": title,
-                "pageid": pageid,
-                "source_url": f"https://onepiece.fandom.com/wiki/{title.replace(' ', '_')}"
-            })
+            name_col = possible_name_cols[0]
 
-            if len(rows) >= limit:
-                return rows
+            for _, row in table.iterrows():
+                name = clean_name(row.get(name_col, ""))
 
-        cmcontinue = data.get("continue", {}).get("cmcontinue")
-        if not cmcontinue:
-            break
+                if not name:
+                    continue
+                if name.lower() in ["nan", "name", "character"]:
+                    continue
+                if len(name) > 80:
+                    continue
 
-        time.sleep(0.15)
+                source_url = f"https://onepiece.fandom.com/wiki/{name.replace(' ', '_')}"
 
-    return rows
+                rows.append({
+                    "name": name,
+                    "source_url": source_url,
+                    "image_url": "",
+                })
 
+    df = pd.DataFrame(rows)
 
-def get_page_images(pageids):
-    image_map = {}
+    if df.empty:
+        return df
 
-    for i in range(0, len(pageids), 50):
-        chunk = pageids[i:i + 50]
+    df = df.drop_duplicates(subset=["name"]).reset_index(drop=True)
 
-        params = {
-            "action": "query",
-            "pageids": "|".join(str(x) for x in chunk if x),
-            "prop": "pageimages",
-            "piprop": "thumbnail",
-            "pithumbsize": "500",
-            "format": "json",
-        }
-
-        res = requests.get(API_URL, params=params, headers=HEADERS, timeout=20)
-        res.raise_for_status()
-        data = res.json()
-
-        pages = data.get("query", {}).get("pages", {})
-
-        for pageid, page in pages.items():
-            thumb = page.get("thumbnail", {})
-            image_map[int(pageid)] = thumb.get("source", "")
-
-        time.sleep(0.15)
-
-    return image_map
+    return df
 
 
 @app.get("/collect")
 def collect_characters():
-    categories = [
-        "Category:Characters",
-        "Category:Canon Characters",
-        "Category:Non-Canon Characters",
-    ]
+    df = collect_from_tables()
 
-    all_rows = []
-
-    for category in categories:
-        rows = get_category_members(category)
-        all_rows.extend(rows)
-
-    df = pd.DataFrame(all_rows)
-    df = df.drop_duplicates(subset=["name"]).reset_index(drop=True)
-
-    image_map = get_page_images(df["pageid"].tolist())
-    df["image_url"] = df["pageid"].map(image_map).fillna("")
+    if df.empty:
+        return {
+            "message": "collection failed",
+            "character_count": 0
+        }
 
     df["gender"] = ""
     df["hair_color"] = ""
@@ -142,13 +113,11 @@ def collect_characters():
     df["beard"] = ""
     df["body_type"] = ""
     df["age_vibe"] = ""
-
     df["cute_level"] = ""
     df["cool_level"] = ""
     df["dark_level"] = ""
     df["funny_level"] = ""
     df["power_level"] = ""
-
     df["match_tags"] = ""
     df["match_note"] = ""
 
@@ -157,18 +126,15 @@ def collect_characters():
     return {
         "message": "collection complete",
         "character_count": len(df),
-        "with_image_count": int((df["image_url"] != "").sum()),
         "csv_path": CSV_PATH,
-        "sample": df.head(10).to_dict(orient="records")
+        "sample": df.head(20).to_dict(orient="records")
     }
 
 
 @app.get("/download-csv")
 def download_csv():
     if not os.path.exists(CSV_PATH):
-        return {
-            "error": "CSV not found. Please run /collect first."
-        }
+        return {"error": "CSV not found. Please run /collect first."}
 
     return FileResponse(
         CSV_PATH,
