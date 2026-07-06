@@ -249,3 +249,20 @@ button:disabled {
     box-shadow: 5px 5px 0 #f4b942;
   }
 }
+
+  .name-input {
+  width: 100%;
+  margin-top: 16px;
+  border: 3px solid #10233f;
+  border-radius: 16px;
+  padding: 14px 16px;
+  font-size: 17px;
+  font-weight: 700;
+  color: #10233f;
+  background: #fffdf4;
+  outline: none;
+}
+
+.name-input::placeholder {
+  color: #8a9aae;
+}
