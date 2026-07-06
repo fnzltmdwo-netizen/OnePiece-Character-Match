@@ -5,5 +5,3 @@ requests
 python-multipart
 pillow
 openai
-lxml
-html5lib
