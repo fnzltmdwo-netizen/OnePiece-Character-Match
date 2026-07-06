@@ -1,7 +1,7 @@
 import os
 import pandas as pd
 
-CSV_PATH = "onepiece_ai_clean.csv"
+CSV_PATH = "onepiece_ai_final.csv"
 
 _dataset_cache = None
 
