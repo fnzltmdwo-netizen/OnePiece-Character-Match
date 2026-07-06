@@ -38,8 +38,6 @@
   </main>
 
   <script>
-    const API_URL = "https://onepiece-character-match.onrender.com";
-
     const loading = document.getElementById("loading");
     const resultSection = document.getElementById("resultSection");
     const resultCards = document.getElementById("resultCards");
@@ -47,7 +45,16 @@
     const copyBtn = document.getElementById("copyBtn");
 
     const params = new URLSearchParams(window.location.search);
-    const shareId = params.get("id");
+
+    function decodeResultData(encodedData) {
+      return JSON.parse(
+        decodeURIComponent(
+          escape(
+            atob(encodedData)
+          )
+        )
+      );
+    }
 
     function renderResults(results) {
       resultCards.innerHTML = "";
@@ -72,26 +79,27 @@
       resultSection.classList.remove("hidden");
     }
 
-    async function loadResult() {
-      if (!shareId) {
-        loading.innerHTML = "<p>결과 ID가 없습니다 😭</p>";
+    function loadResult() {
+      const encodedData = params.get("data");
+
+      if (!encodedData) {
+        loading.innerHTML = "<p>결과를 찾을 수 없습니다 😭</p>";
         return;
       }
 
       try {
-        const response = await fetch(`${API_URL}/result/${shareId}`);
-        const data = await response.json();
+        const decoded = decodeResultData(encodedData);
 
-        if (data.error) {
-          loading.innerHTML = "<p>결과를 찾을 수 없습니다 😭</p>";
+        if (!decoded.results || decoded.results.length === 0) {
+          loading.innerHTML = "<p>결과 데이터가 비어 있습니다 😭</p>";
           return;
         }
 
-        renderResults(data.results);
+        renderResults(decoded.results);
 
       } catch (err) {
         console.error(err);
-        loading.innerHTML = "<p>결과 불러오기 실패 😭</p>";
+        loading.innerHTML = "<p>결과 데이터를 읽을 수 없습니다 😭</p>";
       }
     }
 
@@ -100,8 +108,13 @@
     });
 
     copyBtn.addEventListener("click", async () => {
-      await navigator.clipboard.writeText(window.location.href);
-      alert("결과 링크가 복사됐어!");
+      try {
+        await navigator.clipboard.writeText(window.location.href);
+        alert("결과 링크가 복사됐어!");
+      } catch (err) {
+        console.error(err);
+        alert("복사 실패 😭");
+      }
     });
 
     loadResult();
