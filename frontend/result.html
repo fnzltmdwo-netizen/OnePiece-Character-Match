@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <title>원피스 닮은 캐릭터 결과</title>
+
+  <meta property="og:title" content="원피스 닮은 캐릭터 테스트 결과" />
+  <meta property="og:description" content="내가 닮은 원피스 캐릭터 TOP3를 확인해보세요!" />
+  <meta property="og:image" content="https://onepiece-character-frontend.onrender.com/og-image.png" />
+  <meta property="og:type" content="website" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+  <main class="container">
+    <section class="hero">
+      <div class="flag">🏴‍☠️</div>
+      <h1>원피스 닮은 캐릭터 결과</h1>
+      <p>공유된 TOP3 결과입니다.</p>
+    </section>
+
+    <section id="loading" class="loading">
+      <div class="anchor">⚓</div>
+      <p>결과를 불러오는 중...</p>
+      <div class="bar"><div></div></div>
+    </section>
+
+    <section id="resultSection" class="results hidden">
+      <h2>TOP 3 결과</h2>
+      <div id="resultCards"></div>
+
+      <button id="retryBtn">나도 해보기</button>
+      <button id="copyBtn" class="share-btn">결과 링크 복사</button>
+    </section>
+  </main>
+
+  <script>
+    const API_URL = "https://onepiece-character-match.onrender.com";
+
+    const loading = document.getElementById("loading");
+    const resultSection = document.getElementById("resultSection");
+    const resultCards = document.getElementById("resultCards");
+    const retryBtn = document.getElementById("retryBtn");
+    const copyBtn = document.getElementById("copyBtn");
+
+    const params = new URLSearchParams(window.location.search);
+    const shareId = params.get("id");
+
+    function renderResults(results) {
+      resultCards.innerHTML = "";
+
+      results.forEach((item, index) => {
+        const medal = ["🥇", "🥈", "🥉"][index] || "⭐";
+
+        const card = document.createElement("div");
+        card.className = "result-card";
+
+        card.innerHTML = `
+          <div class="rank">${medal} ${item.name}</div>
+          <img src="${item.image_url}" alt="${item.name}" />
+          <div class="score">${item.score}% 닮음</div>
+          <p class="reason">${item.reason}</p>
+        `;
+
+        resultCards.appendChild(card);
+      });
+
+      loading.classList.add("hidden");
+      resultSection.classList.remove("hidden");
+    }
+
+    async function loadResult() {
+      if (!shareId) {
+        loading.innerHTML = "<p>결과 ID가 없습니다 😭</p>";
+        return;
+      }
+
+      try {
+        const response = await fetch(`${API_URL}/result/${shareId}`);
+        const data = await response.json();
+
+        if (data.error) {
+          loading.innerHTML = "<p>결과를 찾을 수 없습니다 😭</p>";
+          return;
+        }
+
+        renderResults(data.results);
+
+      } catch (err) {
+        console.error(err);
+        loading.innerHTML = "<p>결과 불러오기 실패 😭</p>";
+      }
+    }
+
+    retryBtn.addEventListener("click", () => {
+      window.location.href = "/";
+    });
+
+    copyBtn.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(window.location.href);
+      alert("결과 링크가 복사됐어!");
+    });
+
+    loadResult();
+  </script>
+</body>
+</html>
