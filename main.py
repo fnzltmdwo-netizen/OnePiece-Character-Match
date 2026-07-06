@@ -141,6 +141,36 @@ def load_result(share_id):
     }
 
 
+def get_font(size, bold=True):
+    candidates = [
+        "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
+        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+    ]
+
+    for path in candidates:
+        if os.path.exists(path):
+            return ImageFont.truetype(path, size)
+
+    return ImageFont.load_default()
+
+
+def draw_center_text(draw, box, text, font, fill):
+    left, top, right, bottom = box
+
+    try:
+        bbox = draw.textbbox((0, 0), text, font=font)
+        tw = bbox[2] - bbox[0]
+        th = bbox[3] - bbox[1]
+    except Exception:
+        tw, th = draw.textsize(text, font=font)
+
+    x = left + (right - left - tw) / 2
+    y = top + (bottom - top - th) / 2
+    draw.text((x, y), text, font=font, fill=fill)
+
+
 def gpt_final_judge(image_base64, user_dna, top20):
     candidates = []
 
@@ -314,19 +344,6 @@ def get_result(share_id: str):
     return result
 
 
-def get_font(size, bold=True):
-    candidates = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    ]
-
-    for path in candidates:
-        if os.path.exists(path):
-            return ImageFont.truetype(path, size)
-
-    return ImageFont.load_default()
-
-
 @app.get("/share-image/{share_id}")
 def share_image(share_id: str):
     result = load_result(share_id)
@@ -335,63 +352,108 @@ def share_image(share_id: str):
         return Response(status_code=404)
 
     results = result.get("results", [])
-    user_name = result.get("user_name") or "FRIEND"
+    user_name = result.get("user_name") or "친구"
 
     W, H = 1200, 630
-    img = Image.new("RGB", (W, H), "#f7e4b6")
+    bg = "#f2d8a2"
+    navy = "#10233f"
+    red = "#e63946"
+    gold = "#f4b942"
+    cream = "#fffaf0"
+
+    img = Image.new("RGB", (W, H), bg)
     draw = ImageDraw.Draw(img)
 
-    font_title = get_font(58)
-    font_sub = get_font(36)
-    font_name = get_font(30)
-    font_score = get_font(28)
+    font_title = get_font(54)
+    font_big = get_font(70)
+    font_mid = get_font(38)
+    font_small = get_font(30)
+    font_tiny = get_font(24)
 
-    draw.rectangle([0, 0, W, H], fill="#f7e4b6")
-    draw.rectangle([0, 0, W, 110], fill="#10233f")
-    draw.text((55, 28), "ONE PIECE MATCH RESULT", fill="#ffffff", font=font_title)
-    draw.text((60, 128), f"{user_name}'s TOP 3", fill="#c62828", font=font_sub)
+    draw.rectangle([0, 0, W, H], fill=bg)
+    draw.rectangle([25, 25, W - 25, H - 25], outline=navy, width=8)
+    draw.rectangle([0, 0, W, 112], fill=navy)
 
-    x_positions = [60, 435, 810]
-    medals = ["1", "2", "3"]
-    medal_colors = ["#f4b942", "#cfd8dc", "#cd7f32"]
+    draw.text((55, 28), "ONE PIECE MATCH", fill="white", font=font_title)
+    draw.text((60, 132), f"{user_name}님의 닮은 캐릭터", fill=navy, font=font_mid)
 
-    for i, item in enumerate(results[:3]):
-        x = x_positions[i]
-        y = 190
+    if not results:
+        draw_center_text(draw, (0, 250, W, 380), "NO RESULT", font_big, navy)
+    else:
+        top1 = results[0]
+        top2 = results[1] if len(results) > 1 else None
+        top3 = results[2] if len(results) > 2 else None
+
+        card_x, card_y = 70, 195
+        card_w, card_h = 500, 360
 
         draw.rounded_rectangle(
-            [x, y, x + 330, y + 375],
-            radius=28,
-            fill="#fffdf4",
-            outline="#10233f",
-            width=5
+            [card_x, card_y, card_x + card_w, card_y + card_h],
+            radius=34,
+            fill=cream,
+            outline=navy,
+            width=6
         )
 
-        draw.ellipse(
-            [x + 18, y + 18, x + 80, y + 80],
-            fill=medal_colors[i],
-            outline="#10233f",
-            width=3
-        )
-        draw.text((x + 39, y + 29), medals[i], fill="#10233f", font=font_sub)
+        draw.ellipse([card_x + 28, card_y + 25, card_x + 103, card_y + 100], fill=gold, outline=navy, width=4)
+        draw_center_text(draw, (card_x + 28, card_y + 25, card_x + 103, card_y + 100), "1", font_mid, navy)
 
         try:
-            r = requests.get(item.get("image_url", ""), timeout=8)
+            r = requests.get(top1.get("image_url", ""), timeout=8)
             r.raise_for_status()
-            char_img = Image.open(BytesIO(r.content)).convert("RGB")
-            char_img.thumbnail((235, 235))
-            px = x + (330 - char_img.width) // 2
-            py = y + 95
-            img.paste(char_img, (px, py))
+            char_img = Image.open(BytesIO(r.content)).convert("RGBA")
+            char_img.thumbnail((260, 235))
+            px = card_x + (card_w - char_img.width) // 2
+            py = card_y + 92
+            img.paste(char_img.convert("RGB"), (px, py), char_img if char_img.mode == "RGBA" else None)
         except Exception:
-            draw.rectangle([x + 55, y + 105, x + 275, y + 315], fill="#e2e8f0")
-            draw.text((x + 95, y + 195), "NO IMAGE", fill="#10233f", font=font_score)
+            draw.rectangle([card_x + 135, card_y + 105, card_x + 365, card_y + 305], fill="#e2e8f0")
+            draw_center_text(draw, (card_x + 135, card_y + 105, card_x + 365, card_y + 305), "NO IMAGE", font_small, navy)
 
-        name = str(item.get("name", "Unknown"))[:18]
-        score = item.get("score", 0)
+        top1_name = str(top1.get("name", "Unknown"))[:18]
+        top1_score = top1.get("score", 0)
 
-        draw.text((x + 28, y + 320), name, fill="#10233f", font=font_name)
-        draw.text((x + 28, y + 355), f"{score}% MATCH", fill="#e63946", font=font_score)
+        draw.text((card_x + 35, card_y + 288), top1_name, fill=navy, font=font_mid)
+
+        draw.rounded_rectangle(
+            [card_x + 35, card_y + 325, card_x + 250, card_y + 370],
+            radius=20,
+            fill=red,
+            outline=navy,
+            width=3
+        )
+        draw.text((card_x + 58, card_y + 331), f"{top1_score}% MATCH", fill="white", font=font_small)
+
+        rx = 630
+        draw.text((rx, 205), "TOP 3 RESULT", fill=navy, font=font_mid)
+
+        def draw_rank(y, num, item, color):
+            if not item:
+                return
+
+            draw.rounded_rectangle(
+                [rx, y, 1120, y + 92],
+                radius=24,
+                fill="#fffdf4",
+                outline=navy,
+                width=4
+            )
+
+            draw.ellipse([rx + 20, y + 19, rx + 75, y + 74], fill=color, outline=navy, width=3)
+            draw_center_text(draw, (rx + 20, y + 19, rx + 75, y + 74), str(num), font_small, navy)
+
+            name = str(item.get("name", "Unknown"))[:18]
+            score = item.get("score", 0)
+
+            draw.text((rx + 95, y + 17), name, fill=navy, font=font_mid)
+            draw.text((rx + 95, y + 55), f"{score}% 닮음", fill=red, font=font_small)
+
+        draw_rank(273, 1, top1, gold)
+        draw_rank(382, 2, top2, "#cfd8dc")
+        draw_rank(491, 3, top3, "#cd7f32")
+
+    draw.text((60, 575), "사진 한 장으로 원피스 캐릭터 TOP3 찾기", fill=navy, font=font_tiny)
+    draw.text((800, 575), "onepiece-character-match", fill=navy, font=font_tiny)
 
     buffer = BytesIO()
     img.save(buffer, format="PNG")
