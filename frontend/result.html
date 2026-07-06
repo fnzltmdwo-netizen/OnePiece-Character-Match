@@ -19,7 +19,7 @@
     <section class="hero">
       <div class="flag">🏴‍☠️</div>
       <h1>원피스 닮은 캐릭터 결과</h1>
-      <p id="resultSubText">공유된 TOP3 결과입니다.</p>
+      <p id="resultSubText">공유된 결과입니다.</p>
     </section>
 
     <section id="loading" class="loading">
@@ -38,23 +38,17 @@
   </main>
 
   <script>
+    const API_URL = "https://onepiece-character-match.onrender.com";
+
     const loading = document.getElementById("loading");
     const resultSection = document.getElementById("resultSection");
     const resultCards = document.getElementById("resultCards");
     const retryBtn = document.getElementById("retryBtn");
     const copyBtn = document.getElementById("copyBtn");
+    const resultSubText = document.getElementById("resultSubText");
 
     const params = new URLSearchParams(window.location.search);
-
-    function decodeResultData(encodedData) {
-      return JSON.parse(
-        decodeURIComponent(
-          escape(
-            atob(encodedData)
-          )
-        )
-      );
-    }
+    const shareId = params.get("id");
 
     function renderResults(results) {
       resultCards.innerHTML = "";
@@ -79,31 +73,32 @@
       resultSection.classList.remove("hidden");
     }
 
-    function loadResult() {
-      const encodedData = params.get("data");
-
-      if (!encodedData) {
-        loading.innerHTML = "<p>결과를 찾을 수 없습니다 😭</p>";
+    async function loadResult() {
+      if (!shareId) {
+        loading.innerHTML = "<p>결과 ID가 없습니다 😭</p>";
         return;
       }
 
       try {
-        const decoded = decodeResultData(encodedData);
+        const response = await fetch(`${API_URL}/result/${shareId}`);
+        const data = await response.json();
 
-        if (!decoded.results || decoded.results.length === 0) {
-          loading.innerHTML = "<p>결과 데이터가 비어 있습니다 😭</p>";
+        if (data.error) {
+          loading.innerHTML = "<p>결과를 찾을 수 없습니다 😭</p>";
           return;
         }
-        const resultSubText = document.getElementById("resultSubText");
-        if (decoded.user_name) {
-          resultSubText.textContent = `${decoded.user_name} 님의 공유 결과입니다.`;
-        }  
-        
-        renderResults(decoded.results);
+
+        if (data.user_name) {
+          resultSubText.textContent = `${data.user_name}님의 공유 결과입니다.`;
+        } else {
+          resultSubText.textContent = "공유된 결과입니다.";
+        }
+
+        renderResults(data.results);
 
       } catch (err) {
         console.error(err);
-        loading.innerHTML = "<p>결과 데이터를 읽을 수 없습니다 😭</p>";
+        loading.innerHTML = "<p>결과 불러오기 실패 😭</p>";
       }
     }
 
