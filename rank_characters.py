@@ -6,76 +6,126 @@ from openai import OpenAI
 
 INPUT_CSV = "onepiece.csv"
 OUTPUT_CSV = "onepiece_ranked.csv"
+CHECKPOINT_CSV = "onepiece_ranked_checkpoint.csv"
+
+MODEL = "gpt-4o-mini"
+BATCH_SIZE = 40
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-MODEL = "gpt-4o-mini"
 
-df = pd.read_csv(INPUT_CSV)
+def safe_json_parse(text):
+    try:
+        return json.loads(text)
+    except Exception:
+        start = text.find("[")
+        end = text.rfind("]") + 1
+        if start >= 0 and end > start:
+            return json.loads(text[start:end])
+        raise
 
-rows = []
 
-for idx, row in df.iterrows():
-
-    name = str(row["Name"]).strip()
-
-    print(f"[{idx+1}/{len(df)}] {name}")
-
+def rank_batch(names):
     prompt = f"""
-Character: {name}
+You are ranking One Piece characters by importance/popularity for a character lookalike app.
 
-Rate how important this One Piece character is.
+Return ONLY valid JSON array.
+No markdown.
 
-Return ONLY JSON.
+For each name, return:
+[
+  {{
+    "name": "Character Name",
+    "importance": 0,
+    "reason": "short English reason"
+  }}
+]
 
-{{
- "importance":0,
- "reason":""
-}}
+Importance scale:
+10 = main protagonist or worldwide iconic
+9 = very major recurring / legendary / Yonko / main Straw Hat
+8 = major arc character or very popular recurring
+7 = important supporting character
+6 = supporting but recognizable
+5 = minor but named
+4 or lower = very minor / obscure
 
-importance:
-10 = Main protagonist / iconic worldwide
-9 = Very major recurring
-8 = Major arc character
-7 = Important supporting
-6 = Supporting
-5 = Minor
-4 이하 = Very minor
+Names:
+{json.dumps(names, ensure_ascii=False)}
 """
 
-    try:
+    res = client.chat.completions.create(
+        model=MODEL,
+        temperature=0,
+        max_tokens=3000,
+        messages=[
+            {"role": "user", "content": prompt}
+        ]
+    )
 
-        res = client.chat.completions.create(
-            model=MODEL,
-            temperature=0,
-            messages=[
-                {
-                    "role":"user",
-                    "content":prompt
-                }
-            ]
-        )
+    text = res.choices[0].message.content
+    return safe_json_parse(text)
 
-        txt = res.choices[0].message.content
 
-        js = json.loads(txt)
+def main():
+    df = pd.read_csv(INPUT_CSV)
+    names = [str(x).strip() for x in df["Name"].tolist() if str(x).strip()]
 
-        rows.append({
-            "name":name,
-            "importance":js["importance"],
-            "reason":js["reason"]
-        })
+    if os.path.exists(CHECKPOINT_CSV):
+        result_df = pd.read_csv(CHECKPOINT_CSV)
+        rows = result_df.to_dict(orient="records")
+        done = set(result_df["name"].astype(str).str.lower())
+        print(f"체크포인트 발견! 완료된 수: {len(done)}")
+    else:
+        rows = []
+        done = set()
 
-        time.sleep(0.2)
+    remain = [n for n in names if n.lower() not in done]
 
-    except Exception as e:
+    print(f"전체: {len(names)}")
+    print(f"남은 수: {len(remain)}")
 
-        print(e)
+    for i in range(0, len(remain), BATCH_SIZE):
+        batch = remain[i:i + BATCH_SIZE]
+        print(f"배치 처리 중: {i + 1} ~ {i + len(batch)} / {len(remain)}")
 
-pd.DataFrame(rows).to_csv(
-    OUTPUT_CSV,
-    index=False,
-    encoding="utf-8-sig"
-)
+        try:
+            ranked = rank_batch(batch)
 
-print("완료")
+            for item in ranked:
+                rows.append({
+                    "name": item.get("name", ""),
+                    "importance": item.get("importance", 0),
+                    "reason": item.get("reason", "")
+                })
+
+            pd.DataFrame(rows).to_csv(
+                CHECKPOINT_CSV,
+                index=False,
+                encoding="utf-8-sig"
+            )
+
+            print("저장 완료")
+            time.sleep(1)
+
+        except Exception as e:
+            print("배치 실패:")
+            print(e)
+            time.sleep(10)
+
+    out = pd.DataFrame(rows)
+    out.to_csv(OUTPUT_CSV, index=False, encoding="utf-8-sig")
+
+    print("완료!")
+    print("저장:", OUTPUT_CSV)
+    print("총 평가 수:", len(out))
+
+    top = out[out["importance"] >= 8]
+    top.to_csv("onepiece_top_importance.csv", index=False, encoding="utf-8-sig")
+
+    print("8점 이상:", len(top))
+    print("저장: onepiece_top_importance.csv")
+
+
+if __name__ == "__main__":
+    main()
