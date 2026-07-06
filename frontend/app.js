@@ -1,19 +1,31 @@
 const API_URL = "https://onepiece-character-match.onrender.com";
 
-const fileInput = document.getElementById("fileInput");
+const imageInput = document.getElementById("imageInput");
 const dropZone = document.getElementById("dropZone");
-const previewImage = document.getElementById("previewImage");
+const preview = document.getElementById("preview");
+const uploadText = document.getElementById("uploadText");
 const analyzeBtn = document.getElementById("analyzeBtn");
 const loading = document.getElementById("loading");
 const resultSection = document.getElementById("resultSection");
 const resultCards = document.getElementById("resultCards");
 const copyBtn = document.getElementById("copyBtn");
 
-let selectedBase64 = "";
+let selectedFile = null;
 window.lastShareUrl = "";
 
-dropZone.addEventListener("click", () => {
-  fileInput.click();
+function showPreview(file) {
+  selectedFile = file;
+
+  const url = URL.createObjectURL(file);
+  preview.src = url;
+  preview.classList.remove("hidden");
+  uploadText.classList.add("hidden");
+  analyzeBtn.disabled = false;
+}
+
+imageInput.addEventListener("change", () => {
+  const file = imageInput.files[0];
+  if (file) showPreview(file);
 });
 
 dropZone.addEventListener("dragover", (e) => {
@@ -30,45 +42,23 @@ dropZone.addEventListener("drop", (e) => {
   dropZone.classList.remove("dragover");
 
   const file = e.dataTransfer.files[0];
-  if (file) {
-    handleFile(file);
+  if (file && file.type.startsWith("image/")) {
+    showPreview(file);
   }
 });
 
-fileInput.addEventListener("change", (e) => {
-  const file = e.target.files[0];
-  if (file) {
-    handleFile(file);
-  }
-});
-
-function handleFile(file) {
-  if (!file.type.startsWith("image/")) {
-    alert("이미지 파일만 업로드할 수 있어!");
-    return;
-  }
-
-  const reader = new FileReader();
-
-  reader.onload = () => {
-    selectedBase64 = reader.result;
-    previewImage.src = selectedBase64;
-    previewImage.classList.remove("hidden");
-    analyzeBtn.disabled = false;
-  };
-
-  reader.readAsDataURL(file);
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }
 
 function makeShareUrl(results) {
   const payload = { results };
-
-  const encoded = btoa(
-    unescape(
-      encodeURIComponent(JSON.stringify(payload))
-    )
-  );
-
+  const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(payload))));
   return `${window.location.origin}/result.html?data=${encoded}`;
 }
 
@@ -95,60 +85,45 @@ function renderResults(results) {
 }
 
 analyzeBtn.addEventListener("click", async () => {
-  if (!selectedBase64) {
-    alert("사진을 먼저 업로드해줘!");
-    return;
-  }
+  if (!selectedFile) return;
 
-  analyzeBtn.disabled = true;
   loading.classList.remove("hidden");
   resultSection.classList.add("hidden");
+  analyzeBtn.disabled = true;
 
   try {
+    const imageBase64 = await fileToBase64(selectedFile);
+
     const response = await fetch(`${API_URL}/match`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json"
       },
       body: JSON.stringify({
-        image_base64: selectedBase64
+        image_base64: imageBase64
       })
     });
 
     if (!response.ok) {
-      throw new Error("API 요청 실패");
+      throw new Error("API 호출 실패");
     }
 
     const data = await response.json();
 
-    if (!data.results || data.results.length === 0) {
-      throw new Error("결과 없음");
-    }
-
     renderResults(data.results);
 
-    // 서버 저장 링크 대신 결과 데이터를 URL에 직접 넣음
     window.lastShareUrl = makeShareUrl(data.results);
 
   } catch (error) {
-    console.error(error);
     alert("분석 실패 😭 백엔드 연결 후 다시 테스트해줘.");
+    console.error(error);
   } finally {
     loading.classList.add("hidden");
     analyzeBtn.disabled = false;
   }
 });
 
-if (copyBtn) {
-  copyBtn.addEventListener("click", async () => {
-    const url = window.lastShareUrl || window.location.href;
-
-    try {
-      await navigator.clipboard.writeText(url);
-      alert("결과 링크가 복사됐어!");
-    } catch (err) {
-      console.error(err);
-      alert("복사 실패 😭");
-    }
-  });
-}
+copyBtn.addEventListener("click", async () => {
+  await navigator.clipboard.writeText(window.lastShareUrl || window.location.href);
+  alert("결과 링크가 복사됐어!");
+});
