@@ -4,7 +4,7 @@ import time
 import pandas as pd
 from openai import OpenAI
 
-INPUT_CSV = "onepiece_top300_names.csv"
+INPUT_CSV = "onepiece_top209_with_images.csv"
 OUTPUT_CSV = "onepiece_ai_final.csv"
 CHECKPOINT_CSV = "onepiece_ai_final_checkpoint.csv"
 
