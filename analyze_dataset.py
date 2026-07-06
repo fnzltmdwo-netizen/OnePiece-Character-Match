@@ -4,9 +4,9 @@ import time
 import pandas as pd
 from openai import OpenAI
 
-INPUT_CSV = "onepiece_with_images.csv"
-OUTPUT_CSV = "onepiece_ai_v1.csv"
-CHECKPOINT_CSV = "onepiece_ai_checkpoint.csv"
+INPUT_CSV = "onepiece_clean_with_images.csv"
+OUTPUT_CSV = "onepiece_ai_v2.csv"
+CHECKPOINT_CSV = "onepiece_ai_v2_checkpoint.csv"
 
 MODEL = "gpt-4o-mini"
 
