@@ -1,39 +1,41 @@
 from dataset import get_all_characters
 
-# 문자열 특징 가중치
 STRING_WEIGHTS = {
+    "face_shape": 30,
+    "eye_style": 25,
+    "expression": 15,
+    "hair_style": 10,
     "hair_color": 8,
-    "hair_style": 7,
-    "hair_length": 5,
-    "eye_style": 7,
+    "body_type": 8,
+    "age_vibe": 6,
     "eye_size": 5,
-    "face_shape": 8,
-    "expression": 8,
+    "hair_length": 4,
     "beard": 3,
-    "body_type": 5,
-    "age_vibe": 4,
 }
 
-# 숫자 특징 가중치
 NUMBER_WEIGHTS = {
-    "cute_level": 7,
-    "cool_level": 7,
+    "cute_level": 8,
+    "cool_level": 8,
+    "energy_level": 7,
+    "confidence_level": 7,
     "dark_level": 5,
     "funny_level": 5,
-    "power_level": 6,
-    "hero_level": 5,
+    "power_level": 5,
+    "hero_level": 4,
     "evil_level": 4,
-    "energy_level": 6,
-    "confidence_level": 6,
 }
+
+
+def norm(value):
+    return str(value).lower().strip()
 
 
 def string_score(user_value, char_value, weight):
     if not user_value or not char_value:
         return 0
 
-    u = str(user_value).lower().strip()
-    c = str(char_value).lower().strip()
+    u = norm(user_value)
+    c = norm(char_value)
 
     if u == c:
         return weight
@@ -48,11 +50,10 @@ def number_score(user_value, char_value, weight):
     try:
         u = float(user_value)
         c = float(char_value)
-    except:
+    except Exception:
         return 0
 
     diff = abs(u - c)
-
     return max(0, weight - diff * (weight / 10))
 
 
@@ -60,25 +61,15 @@ def tag_score(user_tags, char_tags):
     if not user_tags or not char_tags:
         return 0
 
-    user = {
-        x.strip().lower()
-        for x in str(user_tags).split(",")
-        if x.strip()
-    }
-
-    char = {
-        x.strip().lower()
-        for x in str(char_tags).split(",")
-        if x.strip()
-    }
+    user = {x.strip().lower() for x in str(user_tags).split(",") if x.strip()}
+    char = {x.strip().lower() for x in str(char_tags).split(",") if x.strip()}
 
     common = user.intersection(char)
 
-    return len(common) * 3
+    return min(len(common) * 5, 20)
 
 
 def calculate_score(user, character):
-
     score = 0
 
     for field, weight in STRING_WEIGHTS.items():
@@ -104,13 +95,11 @@ def calculate_score(user, character):
 
 
 def match_top20(user_dna):
-
     characters = get_all_characters()
 
     scored = []
 
     for char in characters:
-
         score = calculate_score(user_dna, char)
 
         scored.append({
@@ -118,9 +107,6 @@ def match_top20(user_dna):
             "character": char
         })
 
-    scored.sort(
-        key=lambda x: x["score"],
-        reverse=True
-    )
+    scored.sort(key=lambda x: x["score"], reverse=True)
 
     return scored[:20]
