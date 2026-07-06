@@ -4,15 +4,9 @@ from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel
 from openai import OpenAI
 
-import os
-import json
-import uuid
-import sqlite3
-import html
-import requests
+import os, json, uuid, sqlite3, html, requests
 from io import BytesIO
 from datetime import datetime
-
 from PIL import Image, ImageDraw, ImageFont
 
 from dataset import get_character_count
@@ -34,8 +28,11 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 MODEL = "gpt-4o-mini"
 DB_PATH = "results.db"
+
 FRONTEND_URL = "https://onepiece-character-frontend.onrender.com"
 BACKEND_URL = "https://onepiece-character-match.onrender.com"
+
+FONT_PATH = "fonts/Pretendard-Bold.otf"
 
 
 class MatchRequest(BaseModel):
@@ -69,8 +66,20 @@ def home():
         "status": "ok",
         "csv_exists": os.path.exists("onepiece_ai_final.csv"),
         "character_count": get_character_count(),
-        "db_exists": os.path.exists(DB_PATH)
+        "db_exists": os.path.exists(DB_PATH),
+        "font_exists": os.path.exists(FONT_PATH),
     }
+
+
+def get_font(size):
+    if os.path.exists(FONT_PATH):
+        return ImageFont.truetype(FONT_PATH, size)
+
+    fallback = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+    if os.path.exists(fallback):
+        return ImageFont.truetype(fallback, size)
+
+    return ImageFont.load_default()
 
 
 def safe_json_parse(text):
@@ -93,11 +102,7 @@ def save_result(results, user_dna, user_name=""):
     cur.execute(
         """
         INSERT INTO results (
-            share_id,
-            user_name,
-            created_at,
-            results_json,
-            user_dna_json
+            share_id, user_name, created_at, results_json, user_dna_json
         )
         VALUES (?, ?, ?, ?, ?)
         """,
@@ -106,12 +111,11 @@ def save_result(results, user_dna, user_name=""):
             user_name,
             created_at,
             json.dumps(results, ensure_ascii=False),
-            json.dumps(user_dna, ensure_ascii=False)
+            json.dumps(user_dna, ensure_ascii=False),
         )
     )
     conn.commit()
     conn.close()
-
     return share_id
 
 
@@ -137,38 +141,8 @@ def load_result(share_id):
         "user_name": row[1],
         "created_at": row[2],
         "results": json.loads(row[3]),
-        "user_dna": json.loads(row[4])
+        "user_dna": json.loads(row[4]),
     }
-
-
-def get_font(size, bold=True):
-    candidates = [
-        "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
-        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    ]
-
-    for path in candidates:
-        if os.path.exists(path):
-            return ImageFont.truetype(path, size)
-
-    return ImageFont.load_default()
-
-
-def draw_center_text(draw, box, text, font, fill):
-    left, top, right, bottom = box
-
-    try:
-        bbox = draw.textbbox((0, 0), text, font=font)
-        tw = bbox[2] - bbox[0]
-        th = bbox[3] - bbox[1]
-    except Exception:
-        tw, th = draw.textsize(text, font=font)
-
-    x = left + (right - left - tw) / 2
-    y = top + (bottom - top - th) / 2
-    draw.text((x, y), text, font=font, fill=fill)
 
 
 def gpt_final_judge(image_base64, user_dna, top20):
@@ -196,7 +170,7 @@ def gpt_final_judge(image_base64, user_dna, top20):
             "power_level": c.get("power_level", ""),
             "energy_level": c.get("energy_level", ""),
             "confidence_level": c.get("confidence_level", ""),
-            "match_tags": c.get("match_tags", "")
+            "match_tags": c.get("match_tags", ""),
         })
 
     prompt = f"""
@@ -244,9 +218,7 @@ Return format:
                     {"type": "text", "text": prompt},
                     {
                         "type": "image_url",
-                        "image_url": {
-                            "url": normalize_base64(image_base64)
-                        }
+                        "image_url": {"url": normalize_base64(image_base64)}
                     }
                 ]
             }
@@ -254,8 +226,6 @@ Return format:
     )
 
     return safe_json_parse(response.choices[0].message.content)
-
-
 @app.post("/match")
 def match_character(req: MatchRequest):
     user_name = (req.user_name or "").strip()[:12]
@@ -294,7 +264,7 @@ def match_character(req: MatchRequest):
                 "source_url": character.get("source_url", ""),
                 "reason": item.get("reason", character.get("match_note", "")),
                 "tags": character.get("match_tags", ""),
-                "raw_score": matched.get("score", 0)
+                "raw_score": matched.get("score", 0),
             })
 
     if len(results) < 3:
@@ -314,7 +284,7 @@ def match_character(req: MatchRequest):
                 "source_url": character.get("source_url", ""),
                 "reason": character.get("match_note", "전체적인 분위기와 인상이 비슷합니다."),
                 "tags": character.get("match_tags", ""),
-                "raw_score": item["score"]
+                "raw_score": item["score"],
             })
 
             if len(results) >= 3:
@@ -330,7 +300,7 @@ def match_character(req: MatchRequest):
         "result_url": f"{FRONTEND_URL}/result.html?id={share_id}",
         "user_name": user_name,
         "user_dna": user_dna,
-        "results": final_results
+        "results": final_results,
     }
 
 
@@ -344,6 +314,27 @@ def get_result(share_id: str):
     return result
 
 
+def draw_center_text(draw, box, text, font, fill):
+    left, top, right, bottom = box
+    bbox = draw.textbbox((0, 0), text, font=font)
+    tw = bbox[2] - bbox[0]
+    th = bbox[3] - bbox[1]
+    x = left + (right - left - tw) / 2
+    y = top + (bottom - top - th) / 2
+    draw.text((x, y), text, font=font, fill=fill)
+
+
+def load_character_image(url, max_size):
+    try:
+        r = requests.get(url, timeout=8)
+        r.raise_for_status()
+        char_img = Image.open(BytesIO(r.content)).convert("RGBA")
+        char_img.thumbnail(max_size)
+        return char_img
+    except Exception:
+        return None
+
+
 @app.get("/share-image/{share_id}")
 def share_image(share_id: str):
     result = load_result(share_id)
@@ -355,27 +346,33 @@ def share_image(share_id: str):
     user_name = result.get("user_name") or "친구"
 
     W, H = 1200, 630
-    bg = "#f2d8a2"
     navy = "#10233f"
     red = "#e63946"
     gold = "#f4b942"
+    parchment = "#f2d8a2"
     cream = "#fffaf0"
+    brown = "#8b5e34"
 
-    img = Image.new("RGB", (W, H), bg)
+    img = Image.new("RGB", (W, H), parchment)
     draw = ImageDraw.Draw(img)
 
     font_title = get_font(54)
-    font_big = get_font(70)
-    font_mid = get_font(38)
+    font_big = get_font(72)
+    font_mid = get_font(40)
     font_small = get_font(30)
     font_tiny = get_font(24)
 
-    draw.rectangle([0, 0, W, H], fill=bg)
-    draw.rectangle([25, 25, W - 25, H - 25], outline=navy, width=8)
+    # background
+    draw.rectangle([0, 0, W, H], fill=parchment)
+    draw.rectangle([22, 22, W - 22, H - 22], outline=navy, width=8)
     draw.rectangle([0, 0, W, 112], fill=navy)
 
-    draw.text((55, 28), "ONE PIECE MATCH", fill="white", font=font_title)
-    draw.text((60, 132), f"{user_name}님의 닮은 캐릭터", fill=navy, font=font_mid)
+    draw.text((52, 27), "ONE PIECE MATCH", fill="white", font=font_title)
+    draw.text((58, 132), f"{user_name}님의 닮은 캐릭터", fill=navy, font=font_mid)
+
+    # small decorations
+    draw.text((990, 32), "⚓", fill=gold, font=font_title)
+    draw.text((1070, 32), "☠", fill=gold, font=font_title)
 
     if not results:
         draw_center_text(draw, (0, 250, W, 380), "NO RESULT", font_big, navy)
@@ -384,76 +381,84 @@ def share_image(share_id: str):
         top2 = results[1] if len(results) > 1 else None
         top3 = results[2] if len(results) > 2 else None
 
-        card_x, card_y = 70, 195
-        card_w, card_h = 500, 360
+        # Top1 wanted poster
+        px, py = 65, 190
+        pw, ph = 510, 370
 
         draw.rounded_rectangle(
-            [card_x, card_y, card_x + card_w, card_y + card_h],
-            radius=34,
+            [px, py, px + pw, py + ph],
+            radius=32,
             fill=cream,
             outline=navy,
-            width=6
+            width=6,
         )
 
-        draw.ellipse([card_x + 28, card_y + 25, card_x + 103, card_y + 100], fill=gold, outline=navy, width=4)
-        draw_center_text(draw, (card_x + 28, card_y + 25, card_x + 103, card_y + 100), "1", font_mid, navy)
+        draw.rectangle([px + 22, py + 20, px + pw - 22, py + 72], fill=brown)
+        draw_center_text(
+            draw,
+            (px + 22, py + 20, px + pw - 22, py + 72),
+            "WANTED",
+            font_mid,
+            "white",
+        )
 
-        try:
-            r = requests.get(top1.get("image_url", ""), timeout=8)
-            r.raise_for_status()
-            char_img = Image.open(BytesIO(r.content)).convert("RGBA")
-            char_img.thumbnail((260, 235))
-            px = card_x + (card_w - char_img.width) // 2
-            py = card_y + 92
-            img.paste(char_img.convert("RGB"), (px, py), char_img if char_img.mode == "RGBA" else None)
-        except Exception:
-            draw.rectangle([card_x + 135, card_y + 105, card_x + 365, card_y + 305], fill="#e2e8f0")
-            draw_center_text(draw, (card_x + 135, card_y + 105, card_x + 365, card_y + 305), "NO IMAGE", font_small, navy)
+        draw.ellipse([px + 30, py + 88, px + 105, py + 163], fill=gold, outline=navy, width=4)
+        draw_center_text(draw, (px + 30, py + 88, px + 105, py + 163), "1", font_mid, navy)
 
-        top1_name = str(top1.get("name", "Unknown"))[:18]
-        top1_score = top1.get("score", 0)
+        char_img = load_character_image(top1.get("image_url", ""), (270, 225))
+        if char_img:
+            cx = px + (pw - char_img.width) // 2
+            cy = py + 90
+            img.paste(char_img.convert("RGB"), (cx, cy), char_img)
+        else:
+            draw.rectangle([px + 145, py + 105, px + 365, py + 300], fill="#e2e8f0")
+            draw_center_text(draw, (px + 145, py + 105, px + 365, py + 300), "NO IMAGE", font_small, navy)
 
-        draw.text((card_x + 35, card_y + 288), top1_name, fill=navy, font=font_mid)
+        name = str(top1.get("name", "Unknown"))[:18]
+        score = top1.get("score", 0)
+
+        draw_center_text(draw, (px + 25, py + 288, px + pw - 25, py + 330), name, font_mid, navy)
 
         draw.rounded_rectangle(
-            [card_x + 35, card_y + 325, card_x + 250, card_y + 370],
+            [px + 145, py + 330, px + 365, py + 374],
             radius=20,
             fill=red,
             outline=navy,
-            width=3
+            width=3,
         )
-        draw.text((card_x + 58, card_y + 331), f"{top1_score}% MATCH", fill="white", font=font_small)
+        draw_center_text(draw, (px + 145, py + 330, px + 365, py + 374), f"{score}% MATCH", font_small, "white")
 
+        # Right side rankings
         rx = 630
         draw.text((rx, 205), "TOP 3 RESULT", fill=navy, font=font_mid)
 
-        def draw_rank(y, num, item, color):
+        def draw_rank(y, number, item, color):
             if not item:
                 return
 
             draw.rounded_rectangle(
-                [rx, y, 1120, y + 92],
+                [rx, y, 1125, y + 95],
                 radius=24,
                 fill="#fffdf4",
                 outline=navy,
-                width=4
+                width=4,
             )
 
-            draw.ellipse([rx + 20, y + 19, rx + 75, y + 74], fill=color, outline=navy, width=3)
-            draw_center_text(draw, (rx + 20, y + 19, rx + 75, y + 74), str(num), font_small, navy)
+            draw.ellipse([rx + 20, y + 20, rx + 76, y + 76], fill=color, outline=navy, width=3)
+            draw_center_text(draw, (rx + 20, y + 20, rx + 76, y + 76), str(number), font_small, navy)
 
             name = str(item.get("name", "Unknown"))[:18]
             score = item.get("score", 0)
 
-            draw.text((rx + 95, y + 17), name, fill=navy, font=font_mid)
-            draw.text((rx + 95, y + 55), f"{score}% 닮음", fill=red, font=font_small)
+            draw.text((rx + 98, y + 16), name, fill=navy, font=font_mid)
+            draw.text((rx + 98, y + 57), f"{score}% 닮음", fill=red, font=font_small)
 
-        draw_rank(273, 1, top1, gold)
-        draw_rank(382, 2, top2, "#cfd8dc")
-        draw_rank(491, 3, top3, "#cd7f32")
+        draw_rank(275, 1, top1, gold)
+        draw_rank(385, 2, top2, "#cfd8dc")
+        draw_rank(495, 3, top3, "#cd7f32")
 
-    draw.text((60, 575), "사진 한 장으로 원피스 캐릭터 TOP3 찾기", fill=navy, font=font_tiny)
-    draw.text((800, 575), "onepiece-character-match", fill=navy, font=font_tiny)
+    draw.text((58, 575), "사진 한 장으로 원피스 캐릭터 TOP3 찾기", fill=navy, font=font_tiny)
+    draw.text((805, 575), "onepiece-character-match", fill=navy, font=font_tiny)
 
     buffer = BytesIO()
     img.save(buffer, format="PNG")
